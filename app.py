@@ -33,8 +33,8 @@ if not groq_api_key:
     st.stop()
 
 uploaded_files = st.file_uploader(
-    "Upload text files",
-    type=["txt"],
+    "Upload text or PDF files",
+    type=["txt", "pdf"],
     accept_multiple_files=True,
 )
 
