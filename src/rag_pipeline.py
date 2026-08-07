@@ -1,12 +1,23 @@
-from langchain_community.document_loaders import TextLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _load_document(path: str):
+    """Pick the right loader based on file extension."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".pdf":
+        loader = PyPDFLoader(path)
+    else:
+        loader = TextLoader(path)
+    return loader.load()
 
 
 def build_vectorstore(file_paths: list):
@@ -19,11 +30,10 @@ def build_vectorstore(file_paths: list):
     )
 
     for path in file_paths:
-        loader = TextLoader(path)
-        documents = loader.load()
+        documents = _load_document(path)
         chunks = splitter.split_documents(documents)
         for chunk in chunks:
-            chunk.metadata["source_file"] = path
+            chunk.metadata["source_file"] = os.path.basename(path)
         all_docs.extend(chunks)
 
     embeddings = HuggingFaceEmbeddings(
@@ -44,17 +54,12 @@ def query_rag(vectorstore, query, chat_history, groq_api_key, alpha=0.7):
         text = doc.page_content.lower()
         keyword_matches = sum(1 for term in query_terms if term in text)
 
-        # Normalize vector score (FAISS L2 distance -> similarity)
         vector_sim = 1 / (1 + vector_score)
-
-        # Normalize keyword score
         keyword_score = keyword_matches / max(len(query_terms), 1)
 
-        # Weighted hybrid blending
         hybrid_score = alpha * vector_sim + (1 - alpha) * keyword_score
         hybrid_results.append((doc, hybrid_score))
 
-    # Sorting and downstream steps run ONCE, after all results are scored
     hybrid_results.sort(key=lambda x: x[1], reverse=True)
     top_results = hybrid_results[:3]
     docs = [item[0] for item in top_results]
